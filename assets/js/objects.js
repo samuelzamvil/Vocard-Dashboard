@@ -1130,8 +1130,32 @@ class Player {
         if (!('mediaSession' in navigator)) return;
         if (localStorage.getItem('mediaKeySupport') === 'false') return;
 
-        this._silentAudio = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
+        // Build a valid 1-second silent WAV via typed arrays to avoid base64/codec issues
+        const sampleRate = 8000;
+        const buf = new ArrayBuffer(44 + sampleRate);
+        const v = new DataView(buf);
+        const s = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+        s(0, 'RIFF'); v.setUint32(4, 36 + sampleRate, true); s(8, 'WAVE');
+        s(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+        v.setUint32(24, sampleRate, true); v.setUint32(28, sampleRate, true);
+        v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+        s(36, 'data'); v.setUint32(40, sampleRate, true);
+        // Silence for 8-bit unsigned PCM is 128; bytes default to 0 so fill with 128
+        new Uint8Array(buf, 44).fill(128);
+        const url = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+        this._silentAudioUrl = url;
+        this._silentAudio = new Audio(url);
         this._silentAudio.loop = true;
+
+        // play() requires the page to be "activated" by a user gesture first;
+        // listen for the first interaction, then let updateInfo() sustain it
+        const activate = () => {
+            if (this._silentAudio && navigator.mediaSession.playbackState === 'playing') {
+                this._silentAudio.play().catch(() => {});
+            }
+        };
+        document.addEventListener('click', activate, { once: true });
+        document.addEventListener('keydown', activate, { once: true });
 
         navigator.mediaSession.setActionHandler('play', () => this.togglePause());
         navigator.mediaSession.setActionHandler('pause', () => this.togglePause());
@@ -1154,6 +1178,10 @@ class Player {
         if (this._silentAudio) {
             this._silentAudio.pause();
             this._silentAudio = null;
+        }
+        if (this._silentAudioUrl) {
+            URL.revokeObjectURL(this._silentAudioUrl);
+            this._silentAudioUrl = null;
         }
         navigator.mediaSession.metadata = null;
         navigator.mediaSession.playbackState = 'none';
