@@ -1048,6 +1048,7 @@ class Player {
         this.startTime = $("#start-time");
 
         this.updateFilterView();
+        this.setupMediaSession();
     }
 
     handleMessage(msg) {
@@ -1123,6 +1124,21 @@ class Player {
 
     repeatMode() {
         this.send({ op: "repeatTrack" });
+    }
+
+    setupMediaSession() {
+        if (!('mediaSession' in navigator)) return;
+
+        navigator.mediaSession.setActionHandler('play', () => this.togglePause());
+        navigator.mediaSession.setActionHandler('pause', () => this.togglePause());
+        navigator.mediaSession.setActionHandler('nexttrack', () => this.skipTo());
+        navigator.mediaSession.setActionHandler('previoustrack', () => this.backTo());
+        navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+            this.seekTo(this.currentPosition - (details.seekOffset ?? 10) * 1000);
+        });
+        navigator.mediaSession.setActionHandler('seekforward', (details) => {
+            this.seekTo(this.currentPosition + (details.seekOffset ?? 10) * 1000);
+        });
     }
 
     send(payload) {
@@ -1427,6 +1443,19 @@ class Player {
         this.repeat == "off"
             ? $("#repeat-btn").removeClass("active")
             : $("#repeat-btn").addClass("active");
+
+        if ('mediaSession' in navigator) {
+            const track = this.currentTrack;
+            navigator.mediaSession.metadata = track
+                ? new MediaMetadata({
+                    title: track.title || '',
+                    artist: track.author || '',
+                    artwork: track.artworkUrl ? [{ src: track.artworkUrl }] : [],
+                })
+                : null;
+            navigator.mediaSession.playbackState = !track ? 'none'
+                : this.isPaused ? 'paused' : 'playing';
+        }
     }
 
     updateImage(selector, artworkUrl) {
