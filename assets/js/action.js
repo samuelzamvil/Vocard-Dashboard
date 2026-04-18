@@ -570,7 +570,8 @@ function buildShortcutsModalHtml() {
 }
 
 $(document).ready(function () {
-    const player = new Player()
+    let player = new Player()
+    window.player = player
 
     $(document).keydown(function (e) {
         const $target = $(e.target)

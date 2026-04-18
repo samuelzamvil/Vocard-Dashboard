@@ -1127,8 +1127,9 @@ class Player {
     }
 
     setupMediaSession() {
-        if (!('mediaSession' in navigator)) return;
-        if (localStorage.getItem('mediaKeySupport') === 'false') return;
+        console.log('[MediaSession] setupMediaSession called');
+        if (!('mediaSession' in navigator)) { console.log('[MediaSession] not supported'); return; }
+        if (localStorage.getItem('mediaKeySupport') === 'false') { console.log('[MediaSession] disabled by user'); return; }
 
         // Build a 1-second WAV with a very low-amplitude 1 Hz tone.
         // A non-silent stream is required for Firefox to expose hardware media keys.
@@ -1154,38 +1155,43 @@ class Player {
         this._silentAudio.style.display = 'none';
         document.body.appendChild(this._silentAudio);
         this._mediaSessionPrimed = false;
+        console.log('[MediaSession] audio element created and appended');
 
-        // Retry playing on every user gesture until play() resolves successfully.
-        // play() is blocked until the page has received a user activation — we cannot
-        // know in advance which gesture will be first or whether the user has already
-        // interacted, so we keep listening and remove the listeners once primed.
         const activate = async () => {
             if (!this._silentAudio || this._mediaSessionPrimed) return;
+            console.log('[MediaSession] activate triggered, attempting play()');
             try {
                 await this._silentAudio.play();
                 this._mediaSessionPrimed = true;
+                console.log('[MediaSession] primed — audio playing');
                 document.removeEventListener('click', activate);
                 document.removeEventListener('keydown', activate);
                 document.removeEventListener('touchstart', activate);
-            } catch { /* gesture may not have activated the page yet; will retry */ }
+            } catch (e) {
+                console.log('[MediaSession] play() rejected:', e.name, e.message);
+            }
         };
         document.addEventListener('click', activate);
         document.addEventListener('keydown', activate);
         document.addEventListener('touchstart', activate);
 
-        navigator.mediaSession.setActionHandler('play', () => this.togglePause());
-        navigator.mediaSession.setActionHandler('pause', () => this.togglePause());
-        navigator.mediaSession.setActionHandler('nexttrack', () => this.skipTo());
-        navigator.mediaSession.setActionHandler('previoustrack', () => this.backTo());
+        navigator.mediaSession.setActionHandler('play', () => { console.log('[MediaSession] play handler fired'); this.togglePause(); });
+        navigator.mediaSession.setActionHandler('pause', () => { console.log('[MediaSession] pause handler fired'); this.togglePause(); });
+        navigator.mediaSession.setActionHandler('nexttrack', () => { console.log('[MediaSession] nexttrack handler fired'); this.skipTo(); });
+        navigator.mediaSession.setActionHandler('previoustrack', () => { console.log('[MediaSession] previoustrack handler fired'); this.backTo(); });
         navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+            console.log('[MediaSession] seekbackward handler fired', details);
             this.seekTo(this.currentPosition - (details.seekOffset ?? 10) * 1000);
         });
         navigator.mediaSession.setActionHandler('seekforward', (details) => {
+            console.log('[MediaSession] seekforward handler fired', details);
             this.seekTo(this.currentPosition + (details.seekOffset ?? 10) * 1000);
         });
+        console.log('[MediaSession] all action handlers registered');
     }
 
     teardownMediaSession() {
+        console.log('[MediaSession] teardownMediaSession called');
         if (!('mediaSession' in navigator)) return;
 
         ['play', 'pause', 'nexttrack', 'previoustrack', 'seekbackward', 'seekforward'].forEach(action => {
@@ -1203,6 +1209,7 @@ class Player {
         this._mediaSessionPrimed = false;
         navigator.mediaSession.metadata = null;
         navigator.mediaSession.playbackState = 'none';
+        console.log('[MediaSession] torn down');
     }
 
     send(payload) {
@@ -1519,6 +1526,7 @@ class Player {
                 : null;
             const state = !track ? 'none' : this.isPaused ? 'paused' : 'playing';
             navigator.mediaSession.playbackState = state;
+            console.log('[MediaSession] updateInfo — state:', state, '| primed:', this._mediaSessionPrimed, '| track:', track?.title ?? 'none');
             if (this._mediaSessionPrimed) {
                 state === 'playing'
                     ? this._silentAudio.play().catch(() => {})
