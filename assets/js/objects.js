@@ -1128,6 +1128,10 @@ class Player {
 
     setupMediaSession() {
         if (!('mediaSession' in navigator)) return;
+        if (localStorage.getItem('mediaKeySupport') === 'false') return;
+
+        this._silentAudio = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
+        this._silentAudio.loop = true;
 
         navigator.mediaSession.setActionHandler('play', () => this.togglePause());
         navigator.mediaSession.setActionHandler('pause', () => this.togglePause());
@@ -1139,6 +1143,20 @@ class Player {
         navigator.mediaSession.setActionHandler('seekforward', (details) => {
             this.seekTo(this.currentPosition + (details.seekOffset ?? 10) * 1000);
         });
+    }
+
+    teardownMediaSession() {
+        if (!('mediaSession' in navigator)) return;
+
+        ['play', 'pause', 'nexttrack', 'previoustrack', 'seekbackward', 'seekforward'].forEach(action => {
+            navigator.mediaSession.setActionHandler(action, null);
+        });
+        if (this._silentAudio) {
+            this._silentAudio.pause();
+            this._silentAudio = null;
+        }
+        navigator.mediaSession.metadata = null;
+        navigator.mediaSession.playbackState = 'none';
     }
 
     send(payload) {
@@ -1444,7 +1462,7 @@ class Player {
             ? $("#repeat-btn").removeClass("active")
             : $("#repeat-btn").addClass("active");
 
-        if ('mediaSession' in navigator) {
+        if ('mediaSession' in navigator && this._silentAudio) {
             const track = this.currentTrack;
             navigator.mediaSession.metadata = track
                 ? new MediaMetadata({
@@ -1453,8 +1471,11 @@ class Player {
                     artwork: track.artworkUrl ? [{ src: track.artworkUrl }] : [],
                 })
                 : null;
-            navigator.mediaSession.playbackState = !track ? 'none'
-                : this.isPaused ? 'paused' : 'playing';
+            const state = !track ? 'none' : this.isPaused ? 'paused' : 'playing';
+            navigator.mediaSession.playbackState = state;
+            state === 'playing'
+                ? this._silentAudio.play().catch(() => {})
+                : this._silentAudio.pause();
         }
     }
 

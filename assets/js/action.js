@@ -649,6 +649,9 @@ $(document).ready(function () {
         $("html").addClass("light-theme")
         $("#user-settings-page .settings-row input[data-id='toggle-dark-mode']").prop("checked", false)
     }
+    if (localStorage.getItem("mediaKeySupport") === "false") {
+        $("#user-settings-page .settings-row input[data-id='toggle-media-keys']").prop("checked", false)
+    }
 
     // Check and set the queue view based on local storage
     $("#toggle-queue-view").addClass("active")
@@ -729,8 +732,16 @@ $(document).ready(function () {
                 }
                 break
             case pageContainerId.startsWith("user-settings-page"):
-                $("html").toggleClass("light-theme", !value)
-                localStorage.setItem("theme", !value ? "light" : "dark")
+                switch (dataId) {
+                    case "toggle-dark-mode":
+                        $("html").toggleClass("light-theme", !value)
+                        localStorage.setItem("theme", !value ? "light" : "dark")
+                        break
+                    case "toggle-media-keys":
+                        localStorage.setItem("mediaKeySupport", value)
+                        value ? player.setupMediaSession() : player.teardownMediaSession()
+                        break
+                }
                 break
         }
     })
