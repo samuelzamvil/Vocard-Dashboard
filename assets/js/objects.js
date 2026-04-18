@@ -1130,7 +1130,8 @@ class Player {
         if (!('mediaSession' in navigator)) return;
         if (localStorage.getItem('mediaKeySupport') === 'false') return;
 
-        // Build a valid 1-second silent WAV via typed arrays to avoid base64/codec issues
+        // Build a 1-second WAV with a very low-amplitude 1 Hz tone.
+        // A non-silent stream is required for Firefox to expose hardware media keys.
         const sampleRate = 8000;
         const buf = new ArrayBuffer(44 + sampleRate);
         const v = new DataView(buf);
@@ -1140,22 +1141,37 @@ class Player {
         v.setUint32(24, sampleRate, true); v.setUint32(28, sampleRate, true);
         v.setUint16(32, 1, true); v.setUint16(34, 8, true);
         s(36, 'data'); v.setUint32(40, sampleRate, true);
-        // Silence for 8-bit unsigned PCM is 128; bytes default to 0 so fill with 128
-        new Uint8Array(buf, 44).fill(128);
+        const pcm = new Uint8Array(buf, 44);
+        for (let i = 0; i < sampleRate; i++) {
+            pcm[i] = Math.round(128 + 2 * Math.sin(2 * Math.PI * i / sampleRate));
+        }
         const url = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
         this._silentAudioUrl = url;
         this._silentAudio = new Audio(url);
         this._silentAudio.loop = true;
+        this._silentAudio.volume = 0.001;
+        this._silentAudio.setAttribute('aria-hidden', 'true');
+        this._silentAudio.style.display = 'none';
+        document.body.appendChild(this._silentAudio);
+        this._mediaSessionPrimed = false;
 
-        // play() requires the page to be "activated" by a user gesture first;
-        // listen for the first interaction, then let updateInfo() sustain it
-        const activate = () => {
-            if (this._silentAudio && navigator.mediaSession.playbackState === 'playing') {
-                this._silentAudio.play().catch(() => {});
-            }
+        // Retry playing on every user gesture until play() resolves successfully.
+        // play() is blocked until the page has received a user activation — we cannot
+        // know in advance which gesture will be first or whether the user has already
+        // interacted, so we keep listening and remove the listeners once primed.
+        const activate = async () => {
+            if (!this._silentAudio || this._mediaSessionPrimed) return;
+            try {
+                await this._silentAudio.play();
+                this._mediaSessionPrimed = true;
+                document.removeEventListener('click', activate);
+                document.removeEventListener('keydown', activate);
+                document.removeEventListener('touchstart', activate);
+            } catch { /* gesture may not have activated the page yet; will retry */ }
         };
-        document.addEventListener('click', activate, { once: true });
-        document.addEventListener('keydown', activate, { once: true });
+        document.addEventListener('click', activate);
+        document.addEventListener('keydown', activate);
+        document.addEventListener('touchstart', activate);
 
         navigator.mediaSession.setActionHandler('play', () => this.togglePause());
         navigator.mediaSession.setActionHandler('pause', () => this.togglePause());
@@ -1177,12 +1193,14 @@ class Player {
         });
         if (this._silentAudio) {
             this._silentAudio.pause();
+            if (this._silentAudio.parentNode) this._silentAudio.parentNode.removeChild(this._silentAudio);
             this._silentAudio = null;
         }
         if (this._silentAudioUrl) {
             URL.revokeObjectURL(this._silentAudioUrl);
             this._silentAudioUrl = null;
         }
+        this._mediaSessionPrimed = false;
         navigator.mediaSession.metadata = null;
         navigator.mediaSession.playbackState = 'none';
     }
@@ -1501,9 +1519,11 @@ class Player {
                 : null;
             const state = !track ? 'none' : this.isPaused ? 'paused' : 'playing';
             navigator.mediaSession.playbackState = state;
-            state === 'playing'
-                ? this._silentAudio.play().catch(() => {})
-                : this._silentAudio.pause();
+            if (this._mediaSessionPrimed) {
+                state === 'playing'
+                    ? this._silentAudio.play().catch(() => {})
+                    : this._silentAudio.pause();
+            }
         }
     }
 
